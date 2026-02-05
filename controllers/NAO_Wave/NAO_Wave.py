@@ -538,6 +538,7 @@ approach_tilt = 0.0
 target_locked = False
 debug_step = 0
 lost_track_pitch = 0.0
+lost_target_timer = 0
 
 while robot.step(timestep) != -1:
     action_timer += timestep
@@ -611,19 +612,27 @@ while robot.step(timestep) != -1:
             cam_name = "bottom" if get_active_camera() == camera_bottom else "top"
             log_debug(f"APPROACH cam={cam_name} yellow={yellow_percentage:.4f} dist={distance_est}")
 
+        if yellow_percentage < YELLOW_DETECT_PERCENT:
+            lost_target_timer += timestep
+        else:
+            lost_target_timer = 0
+
         if foot_bumper_pressed():
             # Contact detected
             state = STATE_PICKUP
             action_timer = 0
             stop()
             log_debug("FOOT_CONTACT -> PICKUP")
+        # Only trigger pickup if object lost for sustained period (4+ seconds) or foot contact
+        elif lost_target_timer > 4000:
+            state = STATE_PICKUP
+            action_timer = 0
+            stop()
+            log_debug("LOST_TARGET -> PICKUP")
         else:
             track_yellow_with_head()
             # Always walk forward while approaching
             move_forward()
-            # If we lose it, keep tracking and walking forward slowly
-            if yellow_percentage < YELLOW_DETECT_PERCENT and action_timer > 4000:
-                log_debug("LOST_TARGET -> CONTINUE")
     
     # STATE: PICKUP
     elif state == STATE_PICKUP:
