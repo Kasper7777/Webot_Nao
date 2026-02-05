@@ -152,6 +152,7 @@ def get_yellow_percentage():
         height = camera.getHeight()
 
         yellow_count = 0
+        white_count = 0
         total_pixels = width * height
 
         for y in range(0, height, 4):
@@ -160,11 +161,15 @@ def get_yellow_percentage():
                 g = camera.imageGetGreen(image, width, x, y)
                 b = camera.imageGetBlue(image, width, x, y)
 
-                # Yellow: high R, high G, low B
-                if r > 150 and g > 150 and b < 100:
+                # Yellow: high R, high G, LOW B (this is key!)
+                if r > 180 and g > 180 and b < 80:
                     yellow_count += 1
+                # White: all high (R=G=B~255)
+                elif r > 200 and g > 200 and b > 200:
+                    white_count += 1
 
-        return yellow_count / (total_pixels / 16.0)
+        yellow_pct = yellow_count / (total_pixels / 16.0)
+        return yellow_pct
     except:
         return 0.0
 
@@ -209,22 +214,31 @@ def reward_for(prev_yellow, new_yellow, kicked, duck_moved, duck_height):
 
 Q_PATH = os.path.join(os.path.dirname(__file__), "q_table.json")
 
+print(f"Q-table will be saved to: {Q_PATH}")
+
 
 def load_q():
     if os.path.isfile(Q_PATH):
         try:
             with open(Q_PATH, "r", encoding="utf-8") as f:
                 raw = json.load(f)
+            print(f"Loaded Q-table with {len(raw)} states")
             return {tuple(map(int, k.split(","))): v for k, v in raw.items()}
-        except Exception:
+        except Exception as e:
+            print(f"Error loading Q-table: {e}")
             return {}
+    print("No existing Q-table found, starting fresh")
     return {}
 
 
 def save_q(q_table):
-    serial = {f"{k[0]},{k[1]}": v for k, v in q_table.items()}
-    with open(Q_PATH, "w", encoding="utf-8") as f:
-        json.dump(serial, f, indent=2)
+    try:
+        serial = {f"{k[0]},{k[1]}": v for k, v in q_table.items()}
+        with open(Q_PATH, "w", encoding="utf-8") as f:
+            json.dump(serial, f, indent=2)
+        print(f"✓ Saved Q-table with {len(q_table)} states to {Q_PATH}")
+    except Exception as e:
+        print(f"✗ Error saving Q-table: {e}")
 
 
 def q_values(q_table, state):
@@ -293,7 +307,7 @@ for episode in range(MAX_EPISODES):
         print(f"Episode {episode + 1} reward={total_reward:.2f}")
 
 save_q(q_table)
-print("Training complete. Q-table saved.")
+print("✓ Training complete. Q-table saved.")
 
 # Keep stepping so Webots doesn't exit immediately
 while robot.step(timestep) != -1:
