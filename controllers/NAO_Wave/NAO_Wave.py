@@ -11,9 +11,10 @@ TURN_SPEED = 2.0      # Turning speed
 YELLOW_COLOR_THRESHOLD = 50  # Adjust for yellow detection sensitivity
 YELLOW_DETECT_PERCENT = 0.003  # 0.3% yellow pixels to detect object
 YELLOW_NEAR_PERCENT = 0.035     # 3.5% yellow pixels means close enough to pick up
-HEAD_TRACK_YAW_GAIN = 1.4
-HEAD_TRACK_PITCH_GAIN = 0.9
-HEAD_TRACK_SMOOTHING = 0.2  # 0..1, higher = smoother
+HEAD_TRACK_YAW_GAIN = 2.0
+HEAD_TRACK_PITCH_GAIN = 1.4
+HEAD_TRACK_SMOOTHING = 0.35  # 0..1, higher = smoother
+HEAD_TRACK_MAX_STEP = 0.06   # max rad per timestep
 APPROACH_TILT_TARGET = 0.25  # ~14 degrees in radians
 PICKUP_STAGE_TIME = 2400     # ms per pickup stage
 FALL_ANGLE_THRESHOLD = 0.7    # radians (~40 degrees)
@@ -117,6 +118,11 @@ is_fallen = False
 def log_fall_event(event, roll, pitch, yaw):
     timestamp = datetime.now().isoformat(timespec="seconds")
     debug_log.write(f"{timestamp} {event} roll={roll:.3f} pitch={pitch:.3f} yaw={yaw:.3f}\n")
+
+
+def log_debug(message):
+    timestamp = datetime.now().isoformat(timespec="seconds")
+    debug_log.write(f"{timestamp} DEBUG {message}\n")
 
 # Motion files for walking/turning (built-in Webots NAO motions)
 def load_motion(path):
@@ -267,7 +273,7 @@ def track_yellow_with_head():
     yaw_target = max(min(yaw_target, 1.2), -1.2)
     pitch_target = max(min(pitch_target, 0.6), -0.6)
 
-    # Smooth head movement
+    # Smooth head movement with step limiting
     try:
         current_yaw = head_yaw.getTargetPosition()
         current_pitch = head_pitch.getTargetPosition()
@@ -275,11 +281,15 @@ def track_yellow_with_head():
         current_yaw = 0.0
         current_pitch = 0.0
 
-    smoothed_yaw = current_yaw + (yaw_target - current_yaw) * HEAD_TRACK_SMOOTHING
-    smoothed_pitch = current_pitch + (pitch_target - current_pitch) * HEAD_TRACK_SMOOTHING
+    target_yaw = current_yaw + (yaw_target - current_yaw) * HEAD_TRACK_SMOOTHING
+    target_pitch = current_pitch + (pitch_target - current_pitch) * HEAD_TRACK_SMOOTHING
 
-    head_yaw.setPosition(smoothed_yaw)
-    head_pitch.setPosition(smoothed_pitch)
+    # Limit step size per timestep for smooth motion
+    yaw_step = max(min(target_yaw - current_yaw, HEAD_TRACK_MAX_STEP), -HEAD_TRACK_MAX_STEP)
+    pitch_step = max(min(target_pitch - current_pitch, HEAD_TRACK_MAX_STEP), -HEAD_TRACK_MAX_STEP)
+
+    head_yaw.setPosition(current_yaw + yaw_step)
+    head_pitch.setPosition(current_pitch + pitch_step)
 
 
 def detect_yellow_object():
@@ -496,9 +506,13 @@ action_timer = 0
 look_direction = 0  # 0=forward, 1=left, 2=right, 3=up, 4=down
 approach_tilt = 0.0
 target_locked = False
+debug_step = 0
 
 while robot.step(timestep) != -1:
     action_timer += timestep
+    debug_step += 1
+    if target_locked:
+        track_yellow_with_head()
     # Fall detection
     roll, pitch, yaw = inertial_unit.getRollPitchYaw()
     if baseline_roll is None:
@@ -524,6 +538,7 @@ while robot.step(timestep) != -1:
             track_yellow_with_head()
             target_locked = True
             print("Yellow object found! Approaching...")
+            log_debug("TARGET_LOCKED")
         else:
             if target_locked:
                 track_yellow_with_head()
@@ -561,34 +576,26 @@ while robot.step(timestep) != -1:
         # Move towards the object until it appears close enough
         yellow_percentage = get_yellow_percentage()
         distance_est = estimate_distance_to_yellow()
+        if debug_step % 20 == 0:
+            log_debug(f"APPROACH yellow={yellow_percentage:.4f} dist={distance_est}")
+
         if foot_bumper_pressed():
             # Contact detected
             state = STATE_PICKUP
             action_timer = 0
             stop()
-        elif distance_est is not None and distance_est <= 0.35:
-            # Close enough based on distance estimate
-            state = STATE_PICKUP
-            action_timer = 0
-            stop()
-        elif yellow_percentage >= YELLOW_NEAR_PERCENT or approach_tilt >= APPROACH_TILT_TARGET:
-            # Close enough to pick up
-            state = STATE_PICKUP
-            action_timer = 0
-            stop()
+            log_debug("FOOT_CONTACT -> PICKUP")
         else:
             track_yellow_with_head()
             # Always walk forward while approaching
             move_forward()
-            # Gradually tilt body forward as it approaches
-            approach_tilt = min(APPROACH_TILT_TARGET, approach_tilt + 0.001)
-            set_body_tilt(approach_tilt)
             # If we lose it for too long, return to search
             if yellow_percentage < YELLOW_DETECT_PERCENT and action_timer > 4000:
                 state = STATE_SEARCH
                 action_timer = 0
                 stop()
                 approach_tilt = 0.0
+                log_debug("LOST_TARGET -> SEARCH")
     
     # STATE: PICKUP
     elif state == STATE_PICKUP:
@@ -623,13 +630,12 @@ while robot.step(timestep) != -1:
             state = STATE_THROW
             action_timer = 0
     
-    # STATE: THROW
+    # STATE: THROW (repurposed as TURN_AROUND)
     elif state == STATE_THROW:
-        # Move arm up and throw
-        move_arm_to_throw()
-        
-        # Wait then return to search
-        if action_timer > 1000:
+        # Slowly turn around after pickup
+        turn_right()
+        if action_timer > 4000:
+            stop()
             move_arm_to_rest()
             state = STATE_SEARCH
             action_timer = 0
