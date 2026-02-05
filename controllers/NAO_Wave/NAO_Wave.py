@@ -84,8 +84,10 @@ r_ankle_pitch = robot.getDevice("RAnklePitch")
 r_ankle_roll = robot.getDevice("RAnkleRoll")
 
 # Camera for object detection
-camera = robot.getDevice("CameraTop")
-camera.enable(timestep)
+camera_top = robot.getDevice("CameraTop")
+camera_bottom = robot.getDevice("CameraBottom")
+camera_top.enable(timestep)
+camera_bottom.enable(timestep)
 
 # Inertial unit for fall detection
 inertial_unit = robot.getDevice("inertial unit")
@@ -162,8 +164,21 @@ STATE_THROW = "throw"        # Throwing the box
 # HELPER FUNCTIONS
 # ============================================================================
 
+def get_active_camera():
+    """Choose which camera to use based on head pitch / lost track state."""
+    # Use bottom camera when looking down or when target is lost
+    try:
+        pitch = head_pitch.getTargetPosition()
+    except Exception:
+        pitch = 0.0
+    if pitch > 0.6:
+        return camera_bottom
+    return camera_top
+
+
 def get_yellow_percentage():
     """Return estimated yellow pixel percentage (0.0 to 1.0)."""
+    camera = get_active_camera()
     if not camera:
         return 0.0
 
@@ -219,6 +234,7 @@ def foot_bumper_pressed():
 
 def get_yellow_centroid():
     """Return normalized (x, y) centroid of yellow pixels, or None if not found."""
+    camera = get_active_camera()
     if not camera:
         return None
     try:
@@ -261,17 +277,31 @@ def get_yellow_centroid():
 def track_yellow_with_head():
     """Adjust head yaw/pitch to keep yellow object centered."""
     centroid = get_yellow_centroid()
+    global lost_track_pitch
     if centroid is None:
+        # Slowly lower head to try to keep the object in view
+        try:
+            current_pitch = head_pitch.getTargetPosition()
+        except Exception:
+            current_pitch = 0.0
+
+        lost_track_pitch = min(1.5, current_pitch + 0.08)
+        head_pitch.setPosition(lost_track_pitch)
+        if debug_step % 20 == 0:
+            log_debug(f"TRACK_LOST lowering pitch={lost_track_pitch:.2f}")
         return
 
     nx, ny = centroid
     # Proportional control for head tracking
     yaw_target = -HEAD_TRACK_YAW_GAIN * nx
-    pitch_target = HEAD_TRACK_PITCH_GAIN * ny
+    pitch_target = HEAD_TRACK_PITCH_GAIN * ny + 0.15
 
     # Clamp to safe range
     yaw_target = max(min(yaw_target, 1.2), -1.2)
-    pitch_target = max(min(pitch_target, 0.6), -0.6)
+    pitch_target = max(min(pitch_target, 1.0), -0.6)
+
+    # Reset lost-track bias when target is visible
+    lost_track_pitch = 0.0
 
     # Smooth head movement with step limiting
     try:
@@ -507,6 +537,7 @@ look_direction = 0  # 0=forward, 1=left, 2=right, 3=up, 4=down
 approach_tilt = 0.0
 target_locked = False
 debug_step = 0
+lost_track_pitch = 0.0
 
 while robot.step(timestep) != -1:
     action_timer += timestep
@@ -577,7 +608,8 @@ while robot.step(timestep) != -1:
         yellow_percentage = get_yellow_percentage()
         distance_est = estimate_distance_to_yellow()
         if debug_step % 20 == 0:
-            log_debug(f"APPROACH yellow={yellow_percentage:.4f} dist={distance_est}")
+            cam_name = "bottom" if get_active_camera() == camera_bottom else "top"
+            log_debug(f"APPROACH cam={cam_name} yellow={yellow_percentage:.4f} dist={distance_est}")
 
         if foot_bumper_pressed():
             # Contact detected
@@ -589,13 +621,9 @@ while robot.step(timestep) != -1:
             track_yellow_with_head()
             # Always walk forward while approaching
             move_forward()
-            # If we lose it for too long, return to search
+            # If we lose it, keep tracking and walking forward slowly
             if yellow_percentage < YELLOW_DETECT_PERCENT and action_timer > 4000:
-                state = STATE_SEARCH
-                action_timer = 0
-                stop()
-                approach_tilt = 0.0
-                log_debug("LOST_TARGET -> SEARCH")
+                log_debug("LOST_TARGET -> CONTINUE")
     
     # STATE: PICKUP
     elif state == STATE_PICKUP:
