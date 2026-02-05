@@ -42,8 +42,8 @@ init_duck_translation = list(duck_node.getField("translation").getSFVec3f())
 init_duck_rotation = list(duck_node.getField("rotation").getSFRotation())
 
 # Enable cameras for vision-based learning
-camera_top = nao_node.getDevice("CameraTop")
-camera_bottom = nao_node.getDevice("CameraBottom")
+camera_top = robot.getDevice("CameraTop")
+camera_bottom = robot.getDevice("CameraBottom")
 if camera_top:
     camera_top.enable(timestep)
 if camera_bottom:
@@ -84,7 +84,8 @@ def load_motion(name):
 forwards_motion = load_motion("Forwards50.motion")
 turn_left_motion = load_motion("TurnLeft60.motion")
 turn_right_motion = load_motion("TurnRight60.motion")
-kick_right_motion = load_motion("KickRight.motion")
+# KickRight doesn't exist, use TurnLeft as a placeholder kick motion
+kick_right_motion = load_motion("TurnLeft60.motion")
 
 
 def step_for(ms):
@@ -126,7 +127,7 @@ def get_active_camera():
     if camera_top is None and camera_bottom is None:
         return None
     try:
-        head_pitch = nao_node.getDevice("HeadPitch")
+        head_pitch = robot.getDevice("HeadPitch")
         if head_pitch:
             pitch = head_pitch.getTargetPosition()
             if pitch and pitch > 0.6:
