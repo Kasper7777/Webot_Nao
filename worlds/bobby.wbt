@@ -1,0 +1,27 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/softbank/nao/protos/Nao.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/toys/protos/RubberDuck.proto"
+
+WorldInfo {
+}
+Viewpoint {
+  orientation 0.00335162030280518 -0.0028843108385918177 0.9999902236483775 1.7195588133802404
+  position 0.21419188702072336 -1.234063001681881 0.25272763635588724
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+RectangleArena {
+}
+Nao {
+  translation -0.28 0 0.334
+  controller "NAO_Wave"
+}
+RubberDuck {
+  translation 0.31 0 0.02
+}
