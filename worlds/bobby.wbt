@@ -5,12 +5,13 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/softbank/nao/protos/Nao.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/toys/protos/RubberDuck.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/balls/protos/PingPongBall.proto"
 
 WorldInfo {
 }
 Viewpoint {
-  orientation 0.00335162030280518 -0.0028843108385918177 0.9999902236483775 1.7195588133802404
-  position 0.21419188702072336 -1.234063001681881 0.25272763635588724
+  orientation -0.18016674018748458 0.07322354884876343 0.980906854713641 2.3829050100373936
+  position 0.8738194100587079 -0.4664315658436549 0.7538156347394271
 }
 TexturedBackground {
 }
@@ -18,10 +19,14 @@ TexturedBackgroundLight {
 }
 RectangleArena {
 }
-Nao {
+DEF NAO Nao {
   translation -0.28 0 0.334
-  controller "NAO_Wave"
+  controller "NAO_RL_Kick"
+  supervisor TRUE
 }
-RubberDuck {
+DEF DUCK RubberDuck {
   translation 0.31 0 0.02
+}
+PingPongBall {
+  translation 0 0.42 0.02
 }
