@@ -1,31 +1,30 @@
-from controller import Supervisor, Keyboard
+from controller import Supervisor, Motion
 import math
 import os
 import random
 import json
+import time
 
 # =============================
-# RL CONFIG - FULL MOTOR CONTROL
+# RL CONFIG - MOTION-BASED
 # =============================
 MAX_EPISODES = 100
 MAX_STEPS = 100
-ALPHA = 0.1
+MAX_TIME_PER_EPISODE = 20.0  # 20 seconds per episode
+ALPHA = 0.15
 GAMMA = 0.95
-EPSILON = 0.15
+EPSILON = 0.2
 
-# Actions: head control, arm control, locomotion, grabbing
+# Actions: motion files + arm control
 ACTIONS = [
-    "head_left",
-    "head_right",
-    "head_center",
-    "arm_forward",
-    "arm_down",
-    "arm_up",
-    "walk_forward",
-    "walk_left",
-    "walk_right",
-    "walk_backward",
-    "grab",
+    "turn_left", 
+    "turn_right", 
+    "forward", 
+    "side_step_left",
+    "reach_forward",
+    "reach_down",
+    "close_hand",
+    "open_hand"
 ]
 
 # =============================
@@ -86,8 +85,11 @@ r_ankle_pitch = robot.getDevice("RAnklePitch")
 r_ankle_roll = robot.getDevice("RAnkleRoll")
 
 # Enable keyboard input
-keyboard = Keyboard()
-keyboard.enable(timestep)
+keyboard = robot.getDevice("keyboard")
+if keyboard:
+    keyboard.enable(timestep)
+else:
+    keyboard = None
 
 # Try to enable display overlay (for on-screen stats)
 display = None
@@ -101,6 +103,42 @@ try:
 except Exception as e:
     print(f"✗ Display error: {e}")
 
+# Load motion files
+WEBOTS_HOME = os.environ.get("WEBOTS_HOME", "/Applications/Webots.app/Contents")
+
+def resolve_motion_dir(webots_home):
+    if webots_home.endswith(".app"):
+        webots_home = os.path.join(webots_home, "Contents")
+    motion_dir = os.path.join(webots_home, "projects/robots/softbank/nao/motions")
+    if os.path.isdir(motion_dir):
+        return motion_dir
+    return motion_dir
+
+MOTION_DIR = resolve_motion_dir(WEBOTS_HOME)
+
+def load_motion(name):
+    path = os.path.join(MOTION_DIR, name)
+    if not os.path.isfile(path):
+        print(f"Motion missing: {path}")
+        return None
+    try:
+        return Motion(path)
+    except Exception as e:
+        print(f"Motion load error: {e}")
+        return None
+
+forwards_motion = load_motion("Forwards50.motion")
+turn_left_motion = load_motion("TurnLeft60.motion")
+turn_right_motion = load_motion("TurnRight60.motion")
+side_step_left_motion = load_motion("SideStepLeft.motion")
+
+# Arm motors for reaching and grabbing
+r_shoulder_pitch = robot.getDevice("RShoulderPitch")
+r_shoulder_roll = robot.getDevice("RShoulderRoll")
+r_elbow_roll = robot.getDevice("RElbowRoll")
+r_elbow_yaw = robot.getDevice("RElbowYaw")
+r_wrist_yaw = robot.getDevice("RWristYaw")
+
 
 def step_for(ms):
     """Step simulation for specified milliseconds."""
@@ -111,6 +149,20 @@ def step_for(ms):
     return True
 
 
+def play_motion(motion, max_steps=40):
+    """Play a motion file."""
+    if motion is None:
+        return step_for(640)
+    motion.play()
+    for _ in range(max_steps):
+        if robot.step(timestep) == -1:
+            return False
+        if motion.isOver():
+            return True
+    motion.stop()
+    return True
+
+
 def reset_episode():
     """Reset robot and duck to initial state."""
     nao_translation_field.setSFVec3f(init_nao_translation)
@@ -118,94 +170,42 @@ def reset_episode():
     duck_node.getField("translation").setSFVec3f(init_duck_translation)
     duck_node.getField("rotation").setSFRotation(init_duck_rotation)
     
-    # Reset all motors to neutral positions
-    if head_yaw:
-        head_yaw.setPosition(0)
-    if head_pitch:
-        head_pitch.setPosition(0)
-    if r_shoulder_pitch:
-        r_shoulder_pitch.setPosition(1.5)  # Down
-    if r_shoulder_roll:
-        r_shoulder_roll.setPosition(-0.3)  # Towards body
-    if r_elbow_roll:
-        r_elbow_roll.setPosition(0.1)  # Valid range: [0, 1.54]
-    if r_elbow_yaw:
-        r_elbow_yaw.setPosition(0)
-    if r_wrist_yaw:
-        r_wrist_yaw.setPosition(0)
-    
-    # Reset legs to standing
-    for leg_motor in [l_hip_pitch, r_hip_pitch, l_knee_pitch, r_knee_pitch, l_ankle_pitch, r_ankle_pitch]:
-        if leg_motor:
-            leg_motor.setPosition(0)
-    
     robot.simulationResetPhysics()
     step_for(128)
 
 
 def execute_action(action):
-    """Execute motor command based on RL action."""
-    if action == "head_left":
-        if head_yaw:
-            head_yaw.setPosition(0.8)
-        step_for(200)
-    elif action == "head_right":
-        if head_yaw:
-            head_yaw.setPosition(-0.8)
-        step_for(200)
-    elif action == "head_center":
-        if head_yaw:
-            head_yaw.setPosition(0)
-        step_for(200)
+    """Execute motion-based action."""
+    if action == "turn_left":
+        play_motion(turn_left_motion)
+    elif action == "turn_right":
+        play_motion(turn_right_motion)
+    elif action == "forward":
+        play_motion(forwards_motion)
+    elif action == "side_step_left":
+        play_motion(side_step_left_motion)
     
-    elif action == "arm_forward":
+    # Arm actions - direct motor control
+    elif action == "reach_forward":
         if r_shoulder_pitch:
-            r_shoulder_pitch.setPosition(0.8)  # Forward
+            r_shoulder_pitch.setPosition(0.5)  # Forward
         if r_elbow_roll:
-            r_elbow_roll.setPosition(0.8)  # Extend (valid: 0-1.54)
-        step_for(400)
-    elif action == "arm_down":
+            r_elbow_roll.setPosition(0.8)  # Extend arm
+        step_for(500)
+    elif action == "reach_down":
         if r_shoulder_pitch:
             r_shoulder_pitch.setPosition(1.5)  # Down
         if r_elbow_roll:
-            r_elbow_roll.setPosition(0.1)  # Retract (valid: 0-1.54)
-        step_for(400)
-    elif action == "arm_up":
-        if r_shoulder_pitch:
-            r_shoulder_pitch.setPosition(0.2)  # Up
-        if r_elbow_roll:
-            r_elbow_roll.setPosition(0.5)  # Extend (valid: 0-1.54)
-        step_for(400)
-    
-    elif action == "walk_forward":
-        if l_hip_pitch:
-            l_hip_pitch.setPosition(-0.5)
-        if r_hip_pitch:
-            r_hip_pitch.setPosition(-0.5)
+            r_elbow_roll.setPosition(0.1)  # Retract
         step_for(500)
-    elif action == "walk_left":
-        if l_hip_roll:
-            l_hip_roll.setPosition(0.3)
-        if r_hip_roll:
-            r_hip_roll.setPosition(-0.3)
-        step_for(500)
-    elif action == "walk_right":
-        if l_hip_roll:
-            l_hip_roll.setPosition(-0.3)
-        if r_hip_roll:
-            r_hip_roll.setPosition(0.3)
-        step_for(500)
-    elif action == "walk_backward":
-        if l_hip_pitch:
-            l_hip_pitch.setPosition(0.3)  # Clamped from 0.5 (max 0.48398)
-        if r_hip_pitch:
-            r_hip_pitch.setPosition(0.3)  # Clamped from 0.5 (max 0.48398)
-        step_for(500)
-    
-    elif action == "grab":
+    elif action == "close_hand":
         if r_wrist_yaw:
             r_wrist_yaw.setPosition(1.5)  # Close fingers
-        step_for(300)
+        step_for(400)
+    elif action == "open_hand":
+        if r_wrist_yaw:
+            r_wrist_yaw.setPosition(-1.5)  # Open fingers
+        step_for(400)
 
 
 # =============================
@@ -308,17 +308,27 @@ def get_state():
     return (yellow_bin, angle_bin, yellow_pct)
 
 
-def reward_for(prev_yellow, new_yellow, action, duck_moved, duck_height):
-    """Calculate reward for this action."""
-    reward = -0.02  # Time penalty
-    # Reward for approaching yellow (increase in visibility)
-    reward += 0.3 * (new_yellow - prev_yellow)
-    # Reward for lifting it
-    if duck_height > 0.05:
-        reward += 4.0
-    # Reward for successfully grabbing and moving
-    if action == "grab" and duck_moved > 0.1:
-        reward += 6.0
+def reward_for(duck_height, time_on_ground, manual_bonus=0):
+    """
+    Calculate reward based on duck height and time on ground.
+    - Reward proportional to how high duck is lifted (exponential)
+    - Penalty for time duck stays on ground (every 10 seconds = -1 point)
+    - Manual bonus from keyboard input
+    """
+    reward = 0.0
+    
+    # Height reward: exponential - higher = much better!
+    if duck_height > 0.001:  # Duck lifted at all
+        # Exponential: small lift = small reward, big lift = huge reward
+        reward += duck_height * 100  # Scale up
+    
+    # Time penalty: -0.1 points per second on ground (= -1 per 10 seconds)
+    if duck_height < 0.001:
+        reward -= time_on_ground * 0.1
+    
+    # Manual keyboard bonus
+    reward += manual_bonus
+    
     return reward
 
 
@@ -463,16 +473,20 @@ try:
         print(f"\n=== Episode {episode + 1}/{MAX_EPISODES} ===")
         reset_episode()
         
-        # Debug: Sample camera on first step of first episode
-        if episode == start_episode:
-            step_for(100)
-            debug_camera_sample()
-
-        duck_start = list(duck_node.getField("translation").getSFVec3f())
+        duck_start_height = init_duck_translation[1]
         total_reward = 0.0
-        episode_actions = []
+        time_on_ground = 0.0  # Track time duck is on ground
+        episode_start_time = robot.getTime()  # Track episode duration
 
         for step in range(MAX_STEPS):
+            # Check time limit
+            elapsed_time = robot.getTime() - episode_start_time
+            time_remaining = MAX_TIME_PER_EPISODE - elapsed_time
+            
+            if elapsed_time >= MAX_TIME_PER_EPISODE:
+                print(f"  ⏱ TIME'S UP! (20 seconds elapsed)")
+                break
+            
             state = get_state()
             prev_yellow = state[2]
 
@@ -486,8 +500,7 @@ try:
             action = ACTIONS[action_idx]
             
             # Show what robot is doing
-            print(f"  Step {step + 1}: yellow={prev_yellow:.2f}% -> action={action}")
-            print(f"    [Press 0-9 to reward] [Shift+0-9 to penalize]")
+            print(f"  Step {step + 1} [{time_remaining:.1f}s left]: action={action}")
             
             execute_action(action)
 
@@ -495,32 +508,25 @@ try:
             new_state = get_state()
             new_yellow = new_state[2]
 
-            # Calculate reward
+            # Calculate duck height above ground
             duck_now = list(duck_node.getField("translation").getSFVec3f())
-            duck_moved = math.sqrt(
-                (duck_now[0] - duck_start[0]) ** 2 + (duck_now[2] - duck_start[2]) ** 2
-            )
-            duck_height = duck_now[1] - duck_start[1]
+            duck_height = duck_now[1] - duck_start_height
+            
+            # Track time on ground
+            action_duration = robot.getTime() - (episode_start_time + elapsed_time)
+            if duck_height < 0.001:
+                time_on_ground += action_duration
+            else:
+                time_on_ground = 0  # Reset if lifted
+            
+            # Check for manual score
+            manual_score = check_manual_score() if keyboard else 0.0
 
-            reward = reward_for(prev_yellow, new_yellow, action, duck_moved, duck_height)
-            
-            # Check for manual scoring
-            manual_score = check_manual_score()
-            if manual_score != 0.0:
-                reward += manual_score
-                sign = "+" if manual_score > 0 else "-"
-                print(f"    {sign} MANUAL SCORE: {abs(manual_score):.0f} (total reward now: {reward:.2f})")
-            
+            # Calculate reward based on HEIGHT and TIME
+            reward = reward_for(duck_height, time_on_ground, manual_score)
             total_reward += reward
             
-            episode_actions.append({
-                "step": step,
-                "action": action,
-                "yellow_before": prev_yellow,
-                "yellow_after": new_yellow,
-                "duck_height": duck_height,
-                "reward": reward
-            })
+            print(f"    Duck height: {duck_height:.3f}m | Time on ground: {time_on_ground:.1f}s | Reward: {reward:+.2f}")
 
             # Q-learning update
             qv = q_values(q_table, state[:2])
@@ -529,20 +535,14 @@ try:
                 reward + GAMMA * max(qv_next) - qv[action_idx]
             )
 
-            # Show stats on screen
-            show_stats(episode + 1, step + 1, total_reward, action, prev_yellow)
-
-            # Stop if duck moved significantly (success)
-            if duck_moved > 0.5:
-                print(f"  ✓ MOVED DUCK! ({duck_moved:.2f}m)")
+            # Stop if duck lifted very high (success!)
+            if duck_height > 0.15:
+                print(f"  ✓ LIFTED DUCK HIGH! ({duck_height:.3f}m)")
                 break
         
         print(f"Episode {episode + 1} total_reward={total_reward:.2f}")
         
-        # MANUAL SCORING: Press SPACEBAR during episode for +5 bonus
-        print("  [PRESS SPACEBAR to manually reward robot +5 points]")
-        
-        # Save after every episode now
+        # Save after every episode
         save_q(q_table)
         save_episode(episode + 1)
 
@@ -555,6 +555,6 @@ except Exception as e:
     save_q(q_table)
     save_episode(episode + 1)
 
-# Keep stepping so Webots doesn't exit immediately
+# Keep stepping
 while robot.step(timestep) != -1:
     pass

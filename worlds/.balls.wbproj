@@ -5,6 +5,6 @@ sceneTreePerspectives: 000000ff00000001000000030000001e000000c0000000fa010000000
 maximizedDockId: -1
 centralWidgetVisible: 1
 orthographicViewHeight: 1
-textFiles: 0 "controllers/NAO_RL_Kick_Agent/NAO_RL_Kick_Agent.py"
+textFiles: 0 "controllers/EPuck_Red_Ball/EPuck_Red_Ball.py"
 consoles: Console:All:All
 renderingDevicePerspectives: e-puck:camera;1;1;0;0
