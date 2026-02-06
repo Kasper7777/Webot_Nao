@@ -15,16 +15,16 @@ ALPHA = 0.15
 GAMMA = 0.95
 EPSILON = 0.2
 
-# Actions: motion files + arm control
+# Actions: motion files + bilateral arm control
 ACTIONS = [
     "turn_left", 
     "turn_right", 
     "forward", 
     "side_step_left",
-    "reach_forward",
-    "reach_down",
-    "close_hand",
-    "open_hand"
+    "reach_forward_both",
+    "reach_down_both",
+    "close_hands",
+    "open_hands"
 ]
 
 # =============================
@@ -68,6 +68,13 @@ r_shoulder_roll = robot.getDevice("RShoulderRoll")
 r_elbow_roll = robot.getDevice("RElbowRoll")
 r_elbow_yaw = robot.getDevice("RElbowYaw")
 r_wrist_yaw = robot.getDevice("RWristYaw")
+
+# ===== LEFT ARM MOTORS =====
+l_shoulder_pitch = robot.getDevice("LShoulderPitch")
+l_shoulder_roll = robot.getDevice("LShoulderRoll")
+l_elbow_roll = robot.getDevice("LElbowRoll")
+l_elbow_yaw = robot.getDevice("LElbowYaw")
+l_wrist_yaw = robot.getDevice("LWristYaw")
 
 # ===== LEG MOTORS =====
 l_hip_yaw_pitch = robot.getDevice("LHipYawPitch")
@@ -186,25 +193,42 @@ def execute_action(action):
         play_motion(side_step_left_motion)
     
     # Arm actions - direct motor control
-    elif action == "reach_forward":
+    # Bilateral arm actions (both arms together)
+    elif action == "reach_forward_both":
+        # Both arms forward to embrace duck
         if r_shoulder_pitch:
-            r_shoulder_pitch.setPosition(0.5)  # Forward
+            r_shoulder_pitch.setPosition(0.5)
+        if l_shoulder_pitch:
+            l_shoulder_pitch.setPosition(0.5)
         if r_elbow_roll:
-            r_elbow_roll.setPosition(0.8)  # Extend arm
+            r_elbow_roll.setPosition(0.8)
+        if l_elbow_roll:
+            l_elbow_roll.setPosition(-0.8)  # Mirror
         step_for(500)
-    elif action == "reach_down":
+    elif action == "reach_down_both":
+        # Both arms down to reach duck at feet
         if r_shoulder_pitch:
-            r_shoulder_pitch.setPosition(1.5)  # Down
+            r_shoulder_pitch.setPosition(1.5)
+        if l_shoulder_pitch:
+            l_shoulder_pitch.setPosition(1.5)
         if r_elbow_roll:
-            r_elbow_roll.setPosition(0.1)  # Retract
+            r_elbow_roll.setPosition(0.1)
+        if l_elbow_roll:
+            l_elbow_roll.setPosition(-0.1)  # Mirror
         step_for(500)
-    elif action == "close_hand":
+    elif action == "close_hands":
+        # Both hands close for strong grip
         if r_wrist_yaw:
-            r_wrist_yaw.setPosition(1.5)  # Close fingers
+            r_wrist_yaw.setPosition(1.5)
+        if l_wrist_yaw:
+            l_wrist_yaw.setPosition(-1.5)  # Mirror
         step_for(400)
-    elif action == "open_hand":
+    elif action == "open_hands":
+        # Both hands open to release
         if r_wrist_yaw:
-            r_wrist_yaw.setPosition(-1.5)  # Open fingers
+            r_wrist_yaw.setPosition(-1.5)
+        if l_wrist_yaw:
+            l_wrist_yaw.setPosition(1.5)  # Mirror
         step_for(400)
 
 
